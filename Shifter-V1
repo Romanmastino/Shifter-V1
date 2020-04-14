@@ -1,0 +1,258 @@
+/*
+ Shifter-V1
+ Controlling a servo position using a 3 buttons. 
+ Hardware: CONTROLLINO MINI, SERVO MOTOR 720.035 - W 3 D 080
+ 
+ by Roman Komarovich April 2020
+ http://www.arduino.cc/en/Tutorial/Knob
+*/
+
+#include <Controllino.h>  
+#include <Bounce2.h>
+#include <medianFilter.h>
+
+//motor control
+int motor_position = 0; // 1- left, 2 - between left and centre, 3 - centre, 4 - between centre and right, 5 - right.
+int set_motor_position = 3; // centre 
+
+
+medianFilter Filter;
+int valueA4;
+int filteredA4;
+int valueA5;
+int filteredA5;
+
+Bounce deb_A0 = Bounce(); 
+Bounce deb_A1 = Bounce();
+Bounce deb_A2 = Bounce();
+Bounce deb_A3 = Bounce();
+Bounce deb_IN0 = Bounce();
+Bounce deb_IN1 = Bounce();
+
+int record_time = 0; 
+unsigned long sleep_countdown;
+int permission_for_countdown = 0;
+int sleep_mode = 0;
+
+unsigned long motor_delay;
+int motor_delay_permision = 1;
+
+
+int A0_input_state;
+int A1_input_state;
+int A2_input_state;
+int A3_input_state;
+int A4_input_state;
+int A5_input_state;
+int IN0_input_state; 
+int IN1_input_state;
+
+
+void setup() {
+
+ pinMode(CONTROLLINO_A0, INPUT);
+ pinMode(CONTROLLINO_A1, INPUT);
+ pinMode(CONTROLLINO_A2, INPUT);
+ pinMode(CONTROLLINO_A3, INPUT);
+ pinMode(CONTROLLINO_IN0, INPUT);
+ pinMode(CONTROLLINO_IN1, INPUT);
+
+ deb_A0.attach(CONTROLLINO_A0);
+ deb_A0.interval(5); 
+ deb_A1.attach(CONTROLLINO_A1);
+ deb_A1.interval(5); 
+ deb_A2.attach(CONTROLLINO_A2);
+ deb_A2.interval(5); 
+ deb_A3.attach(CONTROLLINO_A3);
+ deb_A3.interval(5); 
+
+
+deb_IN0.attach(CONTROLLINO_IN0);
+deb_IN0.interval(5); 
+deb_IN1.attach(CONTROLLINO_IN1);
+deb_IN1.interval(5); 
+ 
+ 
+ pinMode(CONTROLLINO_D0, OUTPUT);
+ pinMode(CONTROLLINO_D1, OUTPUT);
+ pinMode(CONTROLLINO_D2, OUTPUT);
+ pinMode(CONTROLLINO_D3, OUTPUT);
+ pinMode(CONTROLLINO_D4, OUTPUT);
+ pinMode(CONTROLLINO_D5, OUTPUT);
+ 
+ Serial.begin(9600); 
+ Filter.begin();
+ 
+ digitalWrite(CONTROLLINO_D4, HIGH);
+ delay(500);
+ read_inputs();
+ motor_stop();
+
+}
+
+
+void loop() {
+read_inputs();
+starter();
+
+if(sleep_mode == 0)
+{ 
+  digitalWrite(CONTROLLINO_D4, HIGH);
+  if(set_motor_position == motor_position)
+  motor_stop();
+  else if(set_motor_position > motor_position)
+  motor_left();
+  else if(set_motor_position < motor_position)
+  motor_right(); 
+}
+else if(sleep_mode == 1)
+{
+motor_stop(); 
+digitalWrite(CONTROLLINO_D4, LOW);
+}
+}
+
+void read_inputs()
+{
+valueA4 = analogRead(CONTROLLINO_A4);
+filteredA4 = Filter.run(valueA4);
+if(filteredA4 > 500)
+A4_input_state = 1;
+else
+A4_input_state = 0;
+
+deb_A0.update();
+deb_A1.update();
+deb_A2.update();
+deb_A3.update();
+deb_IN0.update();
+deb_IN1.update();
+
+A0_input_state = deb_A0.read();
+A1_input_state = deb_A1.read();
+A2_input_state = deb_A2.read();
+A3_input_state = deb_A3.read();
+IN0_input_state = deb_IN0.read();
+IN1_input_state = deb_IN1.read();
+
+valueA5 = analogRead(CONTROLLINO_A5);
+filteredA5 = Filter.run(valueA5);
+if(filteredA5 > 500)
+A5_input_state = 1;
+else
+A5_input_state = 0;
+
+//motor encoder
+if(A0_input_state == HIGH && A1_input_state == HIGH && A2_input_state == HIGH && A3_input_state == HIGH)
+  {
+  motor_position = 1; 
+  }
+
+if(A0_input_state == HIGH && A1_input_state == HIGH && A2_input_state == HIGH && A3_input_state == LOW)
+  {
+  motor_position = 2; 
+  }
+
+if(A0_input_state == HIGH && A1_input_state == HIGH && A2_input_state == LOW && A3_input_state == LOW)
+  {
+  motor_position = 3; 
+  }
+
+if(A0_input_state == HIGH && A1_input_state == LOW && A2_input_state == LOW && A3_input_state == LOW)
+  {
+  motor_position = 4; 
+  }
+
+if(A0_input_state == LOW && A1_input_state == LOW && A2_input_state == LOW && A3_input_state == LOW)
+  {
+  motor_position = 5; 
+  }
+
+//D, N, R buttons and ignition check
+
+if(A4_input_state == 1 && A5_input_state == 0 && IN0_input_state == 0 && IN1_input_state == HIGH)
+set_motor_position = 1;
+
+else if(A4_input_state == 0 && A5_input_state == 1 && IN0_input_state == 0 && IN1_input_state == HIGH)
+set_motor_position = 3;
+
+else if(A4_input_state == 0 && A5_input_state == 0 && IN0_input_state == 1 && IN1_input_state == HIGH)
+set_motor_position = 5;
+
+
+else if(IN1_input_state == LOW)
+ {
+  motor_delay_permision = 1;
+  set_motor_position = 3;
+  if(permission_for_countdown == 0)
+  {
+    permission_for_countdown = 1;
+    sleep_countdown = millis();
+    
+  }
+  if(millis() - sleep_countdown > 30000)
+  sleep_mode = 1;
+ }
+
+if(IN1_input_state == HIGH)
+ {
+  sleep_mode = 0;
+  permission_for_countdown = 0;
+  if(motor_delay_permision == 1)
+  {
+  motor_delay_permision = 0;
+  motor_delay = millis();
+  }
+ }
+
+}
+
+void starter()
+{
+if(motor_position == 3 && IN1_input_state == HIGH)
+digitalWrite(CONTROLLINO_D5, HIGH);
+else
+digitalWrite(CONTROLLINO_D5, LOW);
+}
+
+void debug()
+{
+Serial.print("A0_input_state = ");Serial.print(A0_input_state); 
+Serial.print(",  A1_input_state = ");Serial.print(A1_input_state);
+Serial.print(",  A2_input_state = ");Serial.print(A2_input_state);
+Serial.print(",  A3_input_state = ");Serial.print(A3_input_state);
+Serial.print(",  A4_input_state = ");Serial.print(A4_input_state);
+Serial.print(",  A5_input_state = ");Serial.print(A5_input_state);
+Serial.print(",  IN0_input_state = ");Serial.print(IN0_input_state);
+Serial.print(",  IN1_input_state = ");Serial.print(IN1_input_state);
+Serial.print(",  filteredA4 = ");Serial.print(filteredA4);
+Serial.print(",  filteredA5 = ");Serial.println(filteredA5);
+}
+
+void motor_stop()
+{
+digitalWrite(CONTROLLINO_D0, LOW);
+digitalWrite(CONTROLLINO_D1, LOW);
+digitalWrite(CONTROLLINO_D2, LOW);
+digitalWrite(CONTROLLINO_D3, LOW);
+}
+void motor_left()
+{
+  if(millis() - motor_delay > 500)
+  {
+digitalWrite(CONTROLLINO_D0, HIGH);
+digitalWrite(CONTROLLINO_D1, LOW);
+digitalWrite(CONTROLLINO_D2, LOW);
+digitalWrite(CONTROLLINO_D3, HIGH);
+}
+}
+void motor_right()
+{
+  if(millis() - motor_delay > 500)
+  {
+digitalWrite(CONTROLLINO_D0, LOW);
+digitalWrite(CONTROLLINO_D1, HIGH);
+digitalWrite(CONTROLLINO_D2, HIGH);
+digitalWrite(CONTROLLINO_D3, LOW);
+}
+}
