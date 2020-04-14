@@ -4,7 +4,7 @@
  Hardware: CONTROLLINO MINI, SERVO MOTOR 720.035 - W 3 D 080
  
  by Roman Komarovich April 2020
- http://www.arduino.cc/en/Tutorial/Knob
+ https://github.com/Romanmastino/Shifter-V1
 */
 
 #include <Controllino.h>  
